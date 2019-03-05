@@ -1,0 +1,47 @@
+dist: trusty
+language: rust
+rust:
+  - stable
+  - beta
+  - nightly
+sudo: required
+
+matrix:
+  include:
+    - env: TARGET=thumbv7m-none-eabi
+
+    - rust: nightly
+      env: TARGET=thumbv7m-none-eabi
+
+    - rust: beta
+      env: TARGET=thumbv7m-none-eabi
+
+  # Always supply a target
+  exclude:
+    - rust: stable
+    - rust: beta
+    - rust: nightly
+
+install:
+  - rustup component add rust-src
+  - |
+      SYSROOT=$(rustc --print sysroot)
+
+      if [[ ! "$SYSROOT" =~ "$TARGET" ]]; then
+        rustup target add $TARGET
+      else
+        echo "Target $TARGET is already installed"
+      fi
+  - source ~/.cargo/env || true
+
+script:
+  - cargo build --release
+
+cache: cargo
+before_cache:
+  # Travis can't cache files that are not readable by "others"
+  - chmod -R a+r $HOME/.cargo
+
+notifications:
+  email:
+    on_success: never

@@ -1,0 +1,18 @@
+[package]
+name = "rust-meetup-simple-clock"
+version = "0.1.0"
+authors = ["James Waples <james@wapl.es>"]
+edition = "2018"
+
+[dependencies]
+embedded-hal = "0.2.2"
+embedded-graphics = "0.4.7"
+cortex-m = "0.5.8"
+cortex-m-rt = "0.6.7"
+panic-semihosting = "0.5.1"
+cortex-m-semihosting = "0.3.2"
+cortex-m-rtfm = "0.4.2"
+
+[dependencies.stm32f1xx-hal]
+version = "0.2.0"
+features = [ "rt", "stm32f103" ]
