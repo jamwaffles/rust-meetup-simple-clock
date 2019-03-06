@@ -14,6 +14,7 @@ use stm32f1xx_hal::{
     },
     i2c::{BlockingI2c, DutyCycle, Mode},
     prelude::*,
+    rtc::Rtc,
     stm32::I2C1,
 };
 
@@ -23,6 +24,7 @@ type OledDisplay = GraphicsMode<
 
 #[app(device = stm32f1xx_hal::stm32)]
 const APP: () = {
+    static mut RTC_DEVICE: Rtc = ();
     static mut DISPLAY: OledDisplay = ();
 
     #[init]
@@ -32,7 +34,12 @@ const APP: () = {
         let mut flash = device.FLASH.constrain();
         let mut rcc = device.RCC.constrain();
 
-        let clocks = rcc.cfgr.freeze(&mut flash.acr);
+        let clocks = rcc
+            .cfgr
+            .use_hse(8.mhz())
+            .sysclk(72.mhz())
+            .pclk1(36.mhz())
+            .freeze(&mut flash.acr);
 
         let mut afio = device.AFIO.constrain(&mut rcc.apb2);
 
@@ -62,9 +69,19 @@ const APP: () = {
         display.init().expect("Failed to initialise display");
         display.flush().expect("Failed to clear display");
 
+        let mut pwr = device.PWR;
+        let mut backup_domain = rcc.bkp.constrain(device.BKP, &mut rcc.apb1, &mut pwr);
+
+        // Enable RTC interrupt
+        device.RTC.crh.write(|w| w.secie().set_bit());
+        let mut rtc = Rtc::rtc(device.RTC, &mut backup_domain);
+
         hprintln!("init complete").unwrap();
 
-        init::LateResources { DISPLAY: display }
+        init::LateResources {
+            DISPLAY: display,
+            RTC_DEVICE: rtc,
+        }
     }
 
     #[idle(resources = [DISPLAY])]
@@ -80,5 +97,10 @@ const APP: () = {
         resources.DISPLAY.flush().expect("Failed to update display");
 
         loop {}
+    }
+
+    #[interrupt(priority = 3, resources = [RTC_DEVICE])]
+    fn RTC() {
+        hprintln!("tick {}", resources.RTC_DEVICE.seconds()).unwrap();
     }
 };
