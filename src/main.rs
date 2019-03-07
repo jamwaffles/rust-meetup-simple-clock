@@ -3,8 +3,11 @@
 
 extern crate panic_semihosting;
 
+use core::fmt::{self, Write};
 use cortex_m_semihosting::hprintln;
 use embedded_graphics::{fonts::Font8x16, prelude::*};
+use heapless::consts::*;
+use heapless::String;
 use rtfm::app;
 use ssd1306::{interface::I2cInterface, mode::GraphicsMode, Builder};
 use stm32f1xx_hal::{
@@ -67,13 +70,21 @@ const APP: () = {
         let mut display: GraphicsMode<_> = Builder::new().connect_i2c(i2c).into();
 
         display.init().expect("Failed to initialise display");
-        display.flush().expect("Failed to clear display");
+
+        display.draw(
+            Font8x16::render_str("Hello world!")
+                .with_stroke(Some(1u8.into()))
+                .into_iter(),
+        );
+
+        display.flush().expect("Failed to update display");
 
         let mut pwr = device.PWR;
         let mut backup_domain = rcc.bkp.constrain(device.BKP, &mut rcc.apb1, &mut pwr);
 
         // Enable RTC interrupt
         device.RTC.crh.write(|w| w.secie().set_bit());
+
         let mut rtc = Rtc::rtc(device.RTC, &mut backup_domain);
 
         hprintln!("init complete").unwrap();
@@ -84,23 +95,19 @@ const APP: () = {
         }
     }
 
-    #[idle(resources = [DISPLAY])]
-    fn idle() -> ! {
-        hprintln!("idle").unwrap();
+    #[interrupt(priority = 3, resources = [DISPLAY, RTC_DEVICE])]
+    fn RTC() {
+        let mut buf = String::<U8>::new();
+
+        write!(&mut buf, "{}", resources.RTC_DEVICE.seconds());
 
         resources.DISPLAY.draw(
-            Font8x16::render_str("Hello world!")
+            Font8x16::render_str(&buf)
+                .translate(Coord::new(0, 16))
                 .with_stroke(Some(1u8.into()))
                 .into_iter(),
         );
 
         resources.DISPLAY.flush().expect("Failed to update display");
-
-        loop {}
-    }
-
-    #[interrupt(priority = 3, resources = [RTC_DEVICE])]
-    fn RTC() {
-        hprintln!("tick {}", resources.RTC_DEVICE.seconds()).unwrap();
     }
 };
