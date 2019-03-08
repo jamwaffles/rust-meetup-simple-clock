@@ -32,6 +32,8 @@ type OledDisplay = GraphicsMode<
     I2cInterface<BlockingI2c<I2C1, (PB8<Alternate<OpenDrain>>, PB9<Alternate<OpenDrain>>)>>,
 >;
 
+const TWO_PI: f32 = 2.0_f32 * f32::consts::PI;
+
 fn clock_face(display: &mut OledDisplay) {
     let cx = 64;
     let cy = 32;
@@ -40,11 +42,9 @@ fn clock_face(display: &mut OledDisplay) {
     // Offset from outer edge of circle
     let tick_offs = 3;
 
-    let two_pi = 2.0_f32 * f32::consts::PI;
-
     // Draw hour ticks
     for hour in 0..=12 {
-        let phase = (hour as f32 / 12.0) * two_pi;
+        let phase = (hour as f32 / 12.0) * TWO_PI;
         let (phase_sin, phase_cos) = phase.sin_cos();
 
         let x0 = cx as f32 + ((r - tick_offs) as f32 * phase_sin);
@@ -68,6 +68,58 @@ fn clock_face(display: &mut OledDisplay) {
         Circle::new(Coord::new(cx, cy), r as u32)
             .with_stroke(Some(1u8.into()))
             .into_iter(),
+    );
+}
+
+fn clock_hands(display: &mut OledDisplay, seconds: u32) {
+    let (hour_sin, hour_cos) = ((seconds as f32 / 86400.0) * TWO_PI).sin_cos();
+    let (minute_sin, minute_cos) = ((seconds as f32 / 3660.0) * TWO_PI).sin_cos();
+    let (second_sin, second_cos) = ((seconds as f32 / 60.0) * TWO_PI).sin_cos();
+
+    let cx = 64.0;
+    let cy = 32.0;
+    let r = 31.0;
+    let hour_hand_len = r - 15.0;
+    let minute_hand_len = r - 10.0;
+    let second_hand_len = r - 5.0;
+
+    // Hour hand
+    display.draw(
+        Line::new(
+            Coord::new(cx as i32, cy as i32),
+            Coord::new(
+                (cx - hour_hand_len * hour_sin) as i32,
+                (cy + hour_hand_len * hour_cos) as i32,
+            ),
+        )
+        .with_stroke(Some(1u8.into()))
+        .into_iter(),
+    );
+
+    // Minute hand
+    display.draw(
+        Line::new(
+            Coord::new(cx as i32, cy as i32),
+            Coord::new(
+                (cx - minute_hand_len * minute_sin) as i32,
+                (cy + minute_hand_len * minute_cos) as i32,
+            ),
+        )
+        .with_stroke(Some(1u8.into()))
+        .into_iter(),
+    );
+
+    // Second hand
+    display.draw(
+        Line::new(
+            Coord::new(cx as i32, cy as i32),
+            Coord::new(
+                (cx - second_hand_len * second_sin) as i32,
+                (cy + second_hand_len * second_cos) as i32,
+            ),
+        )
+        .with_stroke(Some(1u8.into()))
+        .into_iter(),
     );
 }
 
@@ -137,19 +189,13 @@ const APP: () = {
         }
     }
 
-    // #[interrupt(priority = 3, resources = [DISPLAY, RTC_DEVICE])]
-    // fn RTC() {
-    //     // let mut buf = String::<U8>::new();
+    #[interrupt(priority = 3, resources = [DISPLAY, RTC_DEVICE])]
+    fn RTC() {
+        resources.DISPLAY.clear();
 
-    //     // write!(&mut buf, "{}", resources.RTC_DEVICE.seconds());
+        clock_face(&mut resources.DISPLAY);
+        clock_hands(&mut resources.DISPLAY, resources.RTC_DEVICE.seconds());
 
-    //     // resources.DISPLAY.draw(
-    //     //     Font8x16::render_str(&buf)
-    //     //         .translate(Coord::new(0, 16))
-    //     //         .with_stroke(Some(1u8.into()))
-    //     //         .into_iter(),
-    //     // );
-
-    //     // resources.DISPLAY.flush().expect("Failed to update display");
-    // }
+        resources.DISPLAY.flush().expect("Failed to update display");
+    }
 };
