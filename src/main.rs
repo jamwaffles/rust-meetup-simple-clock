@@ -3,11 +3,18 @@
 
 extern crate panic_semihosting;
 
+use core::f32;
 use core::fmt::{self, Write};
 use cortex_m_semihosting::hprintln;
-use embedded_graphics::{fonts::Font8x16, prelude::*};
+use embedded_graphics::{
+    fonts::Font8x16,
+    pixelcolor::PixelColorU8,
+    prelude::*,
+    primitives::{Circle, Line},
+};
 use heapless::consts::*;
 use heapless::String;
+use libm::F32Ext;
 use rtfm::app;
 use ssd1306::{interface::I2cInterface, mode::GraphicsMode, Builder};
 use stm32f1xx_hal::{
@@ -24,6 +31,45 @@ use stm32f1xx_hal::{
 type OledDisplay = GraphicsMode<
     I2cInterface<BlockingI2c<I2C1, (PB8<Alternate<OpenDrain>>, PB9<Alternate<OpenDrain>>)>>,
 >;
+
+fn clock_face(display: &mut OledDisplay) {
+    let cx = 64;
+    let cy = 32;
+    let r: i32 = 31;
+    let tick_len = 4;
+    // Offset from outer edge of circle
+    let tick_offs = 3;
+
+    let two_pi = 2.0_f32 * f32::consts::PI;
+
+    // Draw hour ticks
+    for hour in 0..=12 {
+        let phase = (hour as f32 / 12.0) * two_pi;
+        let (phase_sin, phase_cos) = phase.sin_cos();
+
+        let x0 = cx as f32 + ((r - tick_offs) as f32 * phase_sin);
+        let y0 = cy as f32 + ((r - tick_offs) as f32 * phase_cos);
+
+        let x1 = cx as f32 + ((r - tick_offs - tick_len) as f32 * phase_sin);
+        let y1 = cy as f32 + ((r - tick_offs - tick_len) as f32 * phase_cos);
+
+        display.draw(
+            Line::new(
+                Coord::new(x0 as i32, y0 as i32),
+                Coord::new(x1 as i32, y1 as i32),
+            )
+            .with_stroke(Some(1u8.into()))
+            .into_iter(),
+        );
+    }
+
+    // Outline circle
+    display.draw(
+        Circle::new(Coord::new(cx, cy), r as u32)
+            .with_stroke(Some(1u8.into()))
+            .into_iter(),
+    );
+}
 
 #[app(device = stm32f1xx_hal::stm32)]
 const APP: () = {
@@ -71,11 +117,7 @@ const APP: () = {
 
         display.init().expect("Failed to initialise display");
 
-        display.draw(
-            Font8x16::render_str("Hello world!")
-                .with_stroke(Some(1u8.into()))
-                .into_iter(),
-        );
+        clock_face(&mut display);
 
         display.flush().expect("Failed to update display");
 
@@ -95,19 +137,19 @@ const APP: () = {
         }
     }
 
-    #[interrupt(priority = 3, resources = [DISPLAY, RTC_DEVICE])]
-    fn RTC() {
-        let mut buf = String::<U8>::new();
+    // #[interrupt(priority = 3, resources = [DISPLAY, RTC_DEVICE])]
+    // fn RTC() {
+    //     // let mut buf = String::<U8>::new();
 
-        write!(&mut buf, "{}", resources.RTC_DEVICE.seconds());
+    //     // write!(&mut buf, "{}", resources.RTC_DEVICE.seconds());
 
-        resources.DISPLAY.draw(
-            Font8x16::render_str(&buf)
-                .translate(Coord::new(0, 16))
-                .with_stroke(Some(1u8.into()))
-                .into_iter(),
-        );
+    //     // resources.DISPLAY.draw(
+    //     //     Font8x16::render_str(&buf)
+    //     //         .translate(Coord::new(0, 16))
+    //     //         .with_stroke(Some(1u8.into()))
+    //     //         .into_iter(),
+    //     // );
 
-        resources.DISPLAY.flush().expect("Failed to update display");
-    }
+    //     // resources.DISPLAY.flush().expect("Failed to update display");
+    // }
 };
