@@ -19,18 +19,36 @@ use rtfm::app;
 use ssd1306::{interface::I2cInterface, mode::GraphicsMode, Builder};
 use stm32f1xx_hal::{
     gpio::{
+        gpioa::{PA0, PA1, PA2, PA3, PA4},
         gpiob::{PB8, PB9},
-        Alternate, OpenDrain,
+        Alternate, Input, OpenDrain, PullDown,
     },
     i2c::{BlockingI2c, DutyCycle, Mode},
     prelude::*,
     rtc::Rtc,
     stm32::I2C1,
+    timer,
 };
 
 type OledDisplay = GraphicsMode<
     I2cInterface<BlockingI2c<I2C1, (PB8<Alternate<OpenDrain>>, PB9<Alternate<OpenDrain>>)>>,
 >;
+
+pub struct Buttons {
+    up: PA0<Input<PullDown>>,
+    down: PA3<Input<PullDown>>,
+    left: PA2<Input<PullDown>>,
+    right: PA4<Input<PullDown>>,
+    center: PA1<Input<PullDown>>,
+}
+
+pub struct ButtonState {
+    up: bool,
+    down: bool,
+    left: bool,
+    right: bool,
+    center: bool,
+}
 
 const TWO_PI: f32 = 2.0_f32 * f32::consts::PI;
 
@@ -127,6 +145,14 @@ fn clock_hands(display: &mut OledDisplay, seconds: u32) {
 const APP: () = {
     static mut RTC_DEVICE: Rtc = ();
     static mut DISPLAY: OledDisplay = ();
+    static mut BUTTONS: Buttons = ();
+    static mut BUTTON_STATE: ButtonState = ButtonState {
+        up: false,
+        down: false,
+        left: false,
+        right: false,
+        center: false,
+    };
 
     #[init]
     fn init() -> init::LateResources {
@@ -145,6 +171,24 @@ const APP: () = {
         let mut afio = device.AFIO.constrain(&mut rcc.apb2);
 
         let mut gpiob = device.GPIOB.split(&mut rcc.apb2);
+        let mut gpioa = device.GPIOA.split(&mut rcc.apb2);
+
+        let up = gpioa.pa0.into_pull_down_input(&mut gpioa.crl);
+        let down = gpioa.pa3.into_pull_down_input(&mut gpioa.crl);
+        let left = gpioa.pa2.into_pull_down_input(&mut gpioa.crl);
+        let right = gpioa.pa4.into_pull_down_input(&mut gpioa.crl);
+        let center = gpioa.pa1.into_pull_down_input(&mut gpioa.crl);
+
+        let buttons = Buttons {
+            up,
+            down,
+            left,
+            right,
+            center,
+        };
+
+        let mut timer = timer::Timer::tim1(device.TIM1, 1.khz(), clocks, &mut rcc.apb2);
+        timer.listen(timer::Event::Update);
 
         let scl = gpiob.pb8.into_alternate_open_drain(&mut gpiob.crh);
         let sda = gpiob.pb9.into_alternate_open_drain(&mut gpiob.crh);
@@ -186,6 +230,7 @@ const APP: () = {
         init::LateResources {
             DISPLAY: display,
             RTC_DEVICE: rtc,
+            BUTTONS: buttons,
         }
     }
 
@@ -195,6 +240,54 @@ const APP: () = {
 
         clock_face(&mut resources.DISPLAY);
         clock_hands(&mut resources.DISPLAY, resources.RTC_DEVICE.seconds());
+
+        resources.DISPLAY.flush().expect("Failed to update display");
+    }
+
+    #[interrupt(priority = 4, resources = [DISPLAY, BUTTONS, BUTTON_STATE])]
+    fn TIM1_UP() {
+        *resources.BUTTON_STATE = ButtonState {
+            up: resources.BUTTONS.up.is_low(),
+            down: resources.BUTTONS.down.is_low(),
+            left: resources.BUTTONS.left.is_low(),
+            right: resources.BUTTONS.right.is_low(),
+            center: resources.BUTTONS.center.is_low(),
+        };
+
+        resources.DISPLAY.draw(
+            Circle::new(Coord::new(8, 2), 2)
+                .with_stroke(Some(1u8.into()))
+                .with_fill(Some((resources.BUTTON_STATE.up as u8).into()))
+                .into_iter(),
+        );
+
+        resources.DISPLAY.draw(
+            Circle::new(Coord::new(8, 14), 2)
+                .with_stroke(Some(1u8.into()))
+                .with_fill(Some((resources.BUTTON_STATE.down as u8).into()))
+                .into_iter(),
+        );
+
+        resources.DISPLAY.draw(
+            Circle::new(Coord::new(2, 8), 2)
+                .with_stroke(Some(1u8.into()))
+                .with_fill(Some((resources.BUTTON_STATE.left as u8).into()))
+                .into_iter(),
+        );
+
+        resources.DISPLAY.draw(
+            Circle::new(Coord::new(14, 8), 2)
+                .with_stroke(Some(1u8.into()))
+                .with_fill(Some((resources.BUTTON_STATE.right as u8).into()))
+                .into_iter(),
+        );
+
+        resources.DISPLAY.draw(
+            Circle::new(Coord::new(8, 8), 2)
+                .with_stroke(Some(1u8.into()))
+                .with_fill(Some((resources.BUTTON_STATE.center as u8).into()))
+                .into_iter(),
+        );
 
         resources.DISPLAY.flush().expect("Failed to update display");
     }
